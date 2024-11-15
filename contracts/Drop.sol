@@ -12,7 +12,7 @@ contract Drop is ERC721{
     uint private startTime;
     uint private royalty;
     uint mintFee;
-    // bool internal immutable dynamicPricing;
+    bool public paused;
     bool isSoulbound;
 
 
@@ -33,8 +33,13 @@ contract Drop is ERC721{
         _;
     }
 
-    modifier onSale{
-        require(block.timestamp >= startTime);
+    modifier saleStarted{
+        require(block.timestamp >= startTime, "SaleNotStarted");
+        _;
+    }    
+
+    modifier isPaused{
+        require(!paused, "Sale Is Paused");
         _;
     }
 
@@ -53,7 +58,8 @@ contract Drop is ERC721{
     }
 
 
-    function mintPublic(uint _amount, address _to) onSale external payable{
+    function mintPublic(uint _amount, address _to) external saleStarted isPaused payable{
+
         uint totalCost = _getCost(_amount);
         if(msg.value < totalCost){
             revert InsufficientFunds(totalCost);
@@ -86,9 +92,12 @@ contract Drop is ERC721{
                 _mintNft(_receipients[i]);
             }
         }
+
     }
 
-
+    function pauseSale() external saleStarted onlyOwner{
+        paused = true;
+    }
 
 
     function whitelistMint() external {}
