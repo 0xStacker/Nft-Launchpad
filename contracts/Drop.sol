@@ -3,7 +3,6 @@ pragma solidity 0.8.25;
 import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC721/ERC721.sol";
 import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/utils/cryptography/MerkleProof.sol";
 
-
 contract Drop is ERC721{
     uint public immutable MAX_SUPPLY;
     uint public totalMinted;
@@ -16,17 +15,18 @@ contract Drop is ERC721{
     uint mintFee;
     bool public paused;
     bool isSoulbound;
+    bool cooldown;
     uint maxPerWallet;
     using MerkleProof for bytes32[];
 
     constructor(string memory _name, string memory _symbol,
      uint _maxSupply, uint _startTime,
       address _owner,
-       address _creator, uint _mintFee, uint _maxPerWallet) ERC721(_name, _symbol){
+       address _creator, uint _mintFee, uint _price, uint _maxPerWallet) ERC721(_name, _symbol){
         creator = _creator;
         MAX_SUPPLY = _maxSupply;
         startTime = _startTime;
-        // dynamicPricing = _dynamicPricing;
+        price = _price;
         maxPerWallet = _maxPerWallet;
         owner = _owner;
         mintFee = _mintFee;
@@ -63,7 +63,9 @@ contract Drop is ERC721{
         return (price * amount) + mintFee;
     }
 
-    function _mintNft(address _to, uint _amount) internal {
+    function _mintNft(address _to, uint _amount) internal {    
+        IERC721 nft = IERC721(address(this));
+        require(nft.balanceOf(_to) + _amount <= maxPerWallet, "Mint Limit Exceeded");
         for(uint i; i < _amount; i++){
             tokenId += 1;
             totalMinted += 1;
@@ -123,6 +125,9 @@ contract Drop is ERC721{
         paused = true;
     }
 
+    function resumeSale() external saleStarted onlyOwner{
+        paused = false;
+    }
     error NotWhitelisted(address _address);
 
 
