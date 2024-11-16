@@ -4,6 +4,7 @@ import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contr
 import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/utils/cryptography/MerkleProof.sol";
 
 contract Drop is ERC721{
+
     uint public immutable MAX_SUPPLY;
     uint public totalMinted;
     uint public price;
@@ -32,6 +33,11 @@ contract Drop is ERC721{
         mintFee = _mintFee;
     }
 
+    event SalePaused();
+    event Purchase(address _buyer, uint _tokenId, uint _amount);
+    event Airdrop(address _to, uint _tokenId, uint _amount);
+    event ResumeSale();
+
     modifier onlyOwner{
         require(msg.sender == owner, "Not Owner");
         _;
@@ -59,7 +65,6 @@ contract Drop is ERC721{
     error SupplyExceeded(uint maxSupply);
 
     function _getCost(uint amount) internal view returns (uint cost){
-        
         return (price * amount) + mintFee;
     }
 
@@ -84,6 +89,7 @@ contract Drop is ERC721{
             revert InsufficientFunds(totalCost);
         }
         _mintNft(msg.sender, _amount);
+        emit Purchase(msg.sender, tokenId, _amount);
     }
 
     function controlledMint(uint _amount) external saleStarted isPaused payable{
@@ -101,6 +107,8 @@ contract Drop is ERC721{
             revert InsufficientFunds(totalCost);
         }
         _mintNft(msg.sender, amountMintable);
+        emit Purchase(msg.sender, tokenId, _amount);
+
     }
 
 
@@ -109,6 +117,7 @@ contract Drop is ERC721{
             revert SupplyExceeded(MAX_SUPPLY);
         }
         _mintNft(_to, _amount);
+        emit Airdrop(_to, tokenId, _amount);
     }
 
     function batchAirdrop(address[] calldata _receipients, uint _amountPerAddress) external onlyOwner{
@@ -118,15 +127,18 @@ contract Drop is ERC721{
         }
         for(uint i; i < _receipients.length; i++){
             _mintNft(_receipients[i], _amountPerAddress);
+            emit Airdrop(_receipients[i], tokenId, _amountPerAddress);
         }
     }
 
     function pauseSale() external saleStarted onlyOwner{
         paused = true;
+        emit SalePaused();
     }
 
     function resumeSale() external saleStarted onlyOwner{
         paused = false;
+        emit ResumeSale();
     }
     error NotWhitelisted(address _address);
 
