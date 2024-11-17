@@ -13,11 +13,11 @@ contract Drop is ERC721{
     uint private tokenId;
     uint private startTime;
     uint private royalty;
-    uint mintFee;
+    uint public mintFee;
     bool public paused;
-    bool isSoulbound;
-    bool cooldown;
-    uint maxPerWallet;
+    // bool isSoulbound;
+    // bool cooldown;
+    uint public maxPerWallet;
     using MerkleProof for bytes32[];
 
     constructor(string memory _name, string memory _symbol,
@@ -147,12 +147,13 @@ contract Drop is ERC721{
         if (!_canMint(_amount)){
             revert SupplyExceeded(MAX_SUPPLY);
         }
-
         bool whitelisted = _proof.verify(_root, _leaf);
         if(!whitelisted){
             revert NotWhitelisted(msg.sender);
         }
         _mintNft(msg.sender, _amount);
     }
+
+
 
 } 
