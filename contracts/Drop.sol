@@ -4,7 +4,6 @@ import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contr
 import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/utils/cryptography/MerkleProof.sol";
 
 contract Drop is ERC721{
-
     uint public immutable MAX_SUPPLY;
     uint public totalMinted;
     uint public price;
@@ -83,12 +82,13 @@ contract Drop is ERC721{
         if (!_canMint(_amount)){
             revert SupplyExceeded(MAX_SUPPLY);
         }
-
         uint totalCost = _getCost(_amount);
         if(msg.value < totalCost){
             revert InsufficientFunds(totalCost);
         }
         _mintNft(msg.sender, _amount);
+        (bool success,) = payable(creator).call{value: msg.value}("");
+        require(success, "Purchase Failed");
         emit Purchase(msg.sender, tokenId, _amount);
     }
 
@@ -107,6 +107,8 @@ contract Drop is ERC721{
             revert InsufficientFunds(totalCost);
         }
         _mintNft(msg.sender, amountMintable);
+        (bool success,) = payable(creator).call{value: msg.value}("");
+        require(success, "Purchase Failed");
         emit Purchase(msg.sender, tokenId, _amount);
 
     }
