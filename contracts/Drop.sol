@@ -60,6 +60,22 @@ contract Drop is ERC721{
         }
     }
 
+    function supply() external view returns(uint){
+        return MAX_SUPPLY;
+    }
+
+    function getPaused() external view returns (bool){
+        return paused;
+    }
+
+    function checkStart() external view returns (bool){
+        return block.timestamp >= startTime;
+    }
+
+    function checkCost(uint _amount) external view returns(uint){
+        return _getCost(_amount);
+    }
+
     error InsufficientFunds(uint _cost);
     error SupplyExceeded(uint maxSupply);
 
@@ -68,8 +84,7 @@ contract Drop is ERC721{
     }
 
     function _mintNft(address _to, uint _amount) internal {    
-        IERC721 nft = IERC721(address(this));
-        require(nft.balanceOf(_to) + _amount <= maxPerWallet, "Mint Limit Exceeded");
+        require(balanceOf(_to) + _amount <= maxPerWallet, "Mint Limit Exceeded");
         for(uint i; i < _amount; i++){
             tokenId += 1;
             totalMinted += 1;
@@ -78,7 +93,7 @@ contract Drop is ERC721{
 
     }
 
-    function mintPublic(uint _amount) external saleStarted isPaused payable{
+    function mintPublic(uint _amount, address _to) external saleStarted isPaused payable{
         if (!_canMint(_amount)){
             revert SupplyExceeded(MAX_SUPPLY);
         }
@@ -86,14 +101,15 @@ contract Drop is ERC721{
         if(msg.value < totalCost){
             revert InsufficientFunds(totalCost);
         }
-        _mintNft(msg.sender, _amount);
-        (bool success,) = payable(creator).call{value: msg.value}("");
-        require(success, "Purchase Failed");
-        emit Purchase(msg.sender, tokenId, _amount);
+        _mintNft(_to, _amount);
+        // (bool success,) = payable(creator).call{value: msg.value}("");
+        // require(success, "Purchase Failed");
+        emit Purchase(_to, tokenId, _amount);
     }
 
-    function controlledMint(uint _amount) external saleStarted isPaused payable{
-        uint amountMintable = _amount;
+
+    function controlledMint(uint _amount, address _to) external saleStarted isPaused payable{
+        uint amountMintable = msg.value / price;
         if (!_canMint(_amount)){
             uint amountLeft = (MAX_SUPPLY - totalMinted);
             if(amountLeft >= maxPerWallet){
@@ -106,7 +122,7 @@ contract Drop is ERC721{
         if(msg.value < totalCost){
             revert InsufficientFunds(totalCost);
         }
-        _mintNft(msg.sender, amountMintable);
+        _mintNft(_to, amountMintable);
         (bool success,) = payable(creator).call{value: msg.value}("");
         require(success, "Purchase Failed");
         emit Purchase(msg.sender, tokenId, _amount);
@@ -142,6 +158,7 @@ contract Drop is ERC721{
         paused = false;
         emit ResumeSale();
     }
+
     error NotWhitelisted(address _address);
 
 
@@ -155,7 +172,4 @@ contract Drop is ERC721{
         }
         _mintNft(msg.sender, _amount);
     }
-
-
-
-} 
+}
