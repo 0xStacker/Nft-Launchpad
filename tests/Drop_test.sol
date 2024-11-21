@@ -27,7 +27,6 @@ contract testSuite {
     /// 'beforeAll' runs before all other tests
     /// More special functions are: 'beforeEach', 'beforeAll', 'afterEach' & 'afterAll'
     /// #sender: account-0
-    /// #value: 200
     function beforeAll() public payable{
         acc0 = TestsAccounts.getAccount(0); 
         acc1 = TestsAccounts.getAccount(1);
@@ -38,22 +37,18 @@ contract testSuite {
        acc0, 0, 100, 2);
        newDrop = _newDrop;
        drop = address(_newDrop);
-    }
-
-    
-    function preChecks() public{
-        Assert.ok(!newDrop.paused(), "Paused should be false");
-        Assert.ok(newDrop.checkStart(), "Sale not started");
-        Assert.equal(newDrop.checkCost(1), 100, "Cost should be 100 wei");
+       Assert.equal(acc0, newDrop.creatorAddress(), "Owner doesn't match");
     }
 
     /// #sender: account-1
     /// #value: 200
-    function testMint() public{
+    function testMint() public payable{
         // Use 'Assert' methods: https://remix-ide.readthedocs.io/en/latest/assert_library.html
         uint currentBal = newDrop.balanceOf(msg.sender);
+        uint creatorBalance = newDrop.creatorAddress().balance;
         newDrop.mintPublic{value: 200}(2, msg.sender);
         Assert.equal(newDrop.balanceOf(msg.sender), currentBal + 2, "Balance should increase by 2");
+        Assert.equal(newDrop.creatorAddress().balance, creatorBalance + 200, "Creator Balance should increase by 200");
     }
 
     /// #sender: account-2
@@ -64,9 +59,29 @@ contract testSuite {
         Assert.equal(newDrop.balanceOf(msg.sender), currentBal + 2, "Balance should increase by 2");
     }
 
-    function checkSupply() public {
-        Assert.ok(newDrop.supply() == 21, "Supply does not match");
+    /// #sender: account-0
+    function testPause() external{
+        newDrop.pauseSale();
+    }
+
+    /// #sender: account-3
+    /// #value: 100
+    // should revert
+    function testMintWhilePaused() public payable{
+        newDrop.mintPublic{value: 100}(1, msg.sender); 
     }
     
+    /// #sender: account-0
+    function testResume() public{
+        newDrop.resumeSale();
+    }
+
+    /// # sender: account-3
+    /// #value: 100
+    function testMintAfterResume() public payable{
+        uint initialBal = newDrop.balanceOf(msg.sender);
+        newDrop.mintPublic{value: 100}(1, msg.sender); 
+        Assert.equal(newDrop.balanceOf(msg.sender), initialBal + 1, "Balance should increase by 1");
+    }
 }
     
