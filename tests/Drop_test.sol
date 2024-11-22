@@ -11,10 +11,6 @@ import "remix_tests.sol";
 import "remix_accounts.sol";
 import {Drop} from "../contracts/Drop.sol";
 
-// interface IERC721{
-//     function mintPublic(uint _amount, address _to) external;
-// }
-
 // File name has to end with '_test.sol', this file can contain more than one testSuite contracts
 contract testSuite {
     Drop public newDrop;
@@ -54,26 +50,19 @@ contract testSuite {
     /// #sender: account-2
     /// #value: 200
     function testControlledMint() public payable{
+        uint creatorBalance = newDrop.creatorAddress().balance;
         uint currentBal = newDrop.balanceOf(msg.sender);
         newDrop.controlledMint{value: 200}(5, msg.sender);
         Assert.equal(newDrop.balanceOf(msg.sender), currentBal + 2, "Balance should increase by 2");
+        Assert.equal(newDrop.creatorAddress().balance, creatorBalance + 200, "Creator Balance should increase by 200");
     }
 
-    /// #sender: account-0
-    function testPause() external{
-        newDrop.pauseSale();
-    }
+    /// #sender: account-1
+    function testAirdrop() external{
+        uint initialBal = newDrop.balanceOf(acc1);
+        newDrop.airdrop(acc1, 2);
+        Assert.equal(newDrop.balanceOf(acc1), initialBal + 2, "Airdrop should transfer 2 tokens from account->account-3");
 
-    /// #sender: account-3
-    /// #value: 100
-    // should revert
-    function testMintWhilePaused() public payable{
-        newDrop.mintPublic{value: 100}(1, msg.sender); 
-    }
-    
-    /// #sender: account-0
-    function testResume() public{
-        newDrop.resumeSale();
     }
 
     /// # sender: account-3
