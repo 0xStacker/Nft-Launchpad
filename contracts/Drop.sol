@@ -32,9 +32,7 @@ contract Drop is ERC721{
 
     receive() external payable { }
 
-    fallback() external payable { 
-        
-    }
+    fallback() external payable { }
 
 
     event SalePaused();
@@ -57,6 +55,11 @@ contract Drop is ERC721{
         _;
     }
 
+    modifier limit(address _to, uint _amount){
+        require(balanceOf(_to) + _amount <= maxPerWallet, "Mint Limit Exceeded");
+        _;
+    }
+
     function _canMint(uint _amount) internal view returns (bool){
         if (totalMinted + _amount > MAX_SUPPLY){
             return false;
@@ -64,6 +67,7 @@ contract Drop is ERC721{
             return true;
         }
     }
+
 
     function creatorAddress() public view returns(address){
         return owner;
@@ -73,7 +77,7 @@ contract Drop is ERC721{
         return MAX_SUPPLY;
     }
 
-    function getPaused() external view returns (bool){
+    function checkPaused() external view returns (bool){
         return paused;
     }
 
@@ -91,7 +95,6 @@ contract Drop is ERC721{
     function _mintNft(address _to, uint _amount) internal {  
         (bool success,) = payable(creator).call{value: msg.value}("");
         require(success, "Purchase Failed");  
-        require(balanceOf(_to) + _amount <= maxPerWallet, "Mint Limit Exceeded");
         for(uint i; i < _amount; i++){
             tokenId += 1;
             totalMinted += 1;
@@ -100,7 +103,7 @@ contract Drop is ERC721{
 
     }
 
-    function mintPublic(uint _amount, address _to) external payable saleStarted isPaused {
+    function mintPublic(uint _amount, address _to) external payable saleStarted isPaused limit(_to, _amount){
         if (!_canMint(_amount)){
             revert SupplyExceeded(MAX_SUPPLY);
         }
@@ -114,7 +117,7 @@ contract Drop is ERC721{
     }
 
 
-    function controlledMint(uint _amount, address _to) external payable saleStarted isPaused {
+    function controlledMint(uint _amount, address _to) external payable saleStarted isPaused{
         uint amountMintable = msg.value / price;
         if (!_canMint(_amount)){
             uint amountLeft = (MAX_SUPPLY - totalMinted);
@@ -134,7 +137,7 @@ contract Drop is ERC721{
     }
 
 
-    function airdrop(address _to, uint _amount) external onlyOwner{
+    function airdrop(address _to, uint _amount) external{
         if(!_canMint(_amount)){
             revert SupplyExceeded(MAX_SUPPLY);
         }
@@ -166,14 +169,14 @@ contract Drop is ERC721{
     error NotWhitelisted(address _address);
 
 
-    function whitelistMint(bytes32[] memory _proof, bytes32 _root, bytes32 _leaf, uint _amount) external saleStarted isPaused{
-        if (!_canMint(_amount)){
-            revert SupplyExceeded(MAX_SUPPLY);
-        }
-        bool whitelisted = _proof.verify(_root, _leaf);
-        if(!whitelisted){
-            revert NotWhitelisted(msg.sender);
-        }
-        _mintNft(msg.sender, _amount);
-    }
+    // function whitelistMint(bytes32[] memory _proof, bytes32 _root, uint _amount) external saleStarted isPaused limit(_to, _amount){
+    //     if (!_canMint(_amount)){
+    //         revert SupplyExceeded(MAX_SUPPLY);
+    //     }
+    //     bool whitelisted = _proof.verify(_root, _leaf);
+    //     if(!whitelisted){
+    //         revert NotWhitelisted(msg.sender);
+    //     }
+    //     _mintNft(msg.sender, _amount);
+    //}
 }
