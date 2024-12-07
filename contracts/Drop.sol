@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.25;
-import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC721/ERC721.sol";
+import {ERC721} from ".deps/github/OpenZeppelin/openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
 import {MerkleProof} from ".deps/github/OpenZeppelin/openzeppelin-contracts/contracts/utils/cryptography/MerkleProof.sol";
 
 interface IERC20{
@@ -9,6 +9,7 @@ interface IERC20{
 
 
 contract Drop is ERC721{
+    
     uint public immutable MAX_SUPPLY;
     uint public totalMinted;
     uint private immutable price;
@@ -19,20 +20,23 @@ contract Drop is ERC721{
     uint private royalty;
     uint public mintFee;
     bool public paused;
-    uint public maxPerWallet;
+    uint8 public maxPerWallet;
     tokenGate[] public tokenGates;
-
-
+    publicMint internal _publicMint;
+    bool internal enablePublicMint = true;
     using MerkleProof for bytes32[];
+
+
     constructor(string memory _name,
     string memory _symbol,
     uint _maxSupply,
     uint _startTime,
+    uint _endTime,
     address _owner,   
     address _creator,
     uint _mintFee,
     uint _price,
-    uint _maxPerWallet) ERC721(_name, _symbol){
+    uint8 _maxPerWallet) ERC721(_name, _symbol){
         creator = _creator;
         MAX_SUPPLY = _maxSupply;
         startTime = _startTime;
@@ -40,6 +44,10 @@ contract Drop is ERC721{
         maxPerWallet = _maxPerWallet;
         owner = _owner;
         mintFee = _mintFee;
+        _publicMint.startTime = _startTime;
+        _publicMint.endTime = _endTime;
+        _publicMint.price = _price;
+        _publicMint.maxPerWallet = _maxPerWallet;
     }
 
     receive() external payable { }
@@ -48,6 +56,9 @@ contract Drop is ERC721{
 
 
     error NotWhitelisted(address _address);
+    error InsufficientFunds(uint _cost);
+    error SupplyExceeded(uint maxSupply);
+    error InvalidPhase(uint8 _phaseId);
 
     event SalePaused();
     event Purchase(address _buyer, uint _tokenId, uint _amount);
@@ -61,9 +72,18 @@ contract Drop is ERC721{
         _;
     }
 
-    modifier saleStarted{
-        require(block.timestamp >= startTime, "SaleNotStarted");
+    modifier phaseActive(uint8 _phaseId){
+        if (_phaseId == 0){
+            require(_publicMint.startTime <= block.timestamp && block.timestamp <= _publicMint.endTime, "Phase Inactive");
         _;
+        }
+
+        else{
+            uint phaseStartTime = phases[_phaseId].startTime;
+            uint phaseEndTime = phases[_phaseId].endTime;
+            require(phaseStartTime <= block.timestamp && block.timestamp <= phaseEndTime, "Phase Inactive");
+        }
+
     }    
 
     modifier isPaused{
@@ -71,9 +91,17 @@ contract Drop is ERC721{
         _;
     }
 
-    modifier limit(address _to, uint _amount){
-        require(balanceOf(_to) + _amount <= maxPerWallet, "Mint Limit Exceeded");
-        _;
+
+    modifier limit(address _to, uint _amount, uint8 _phaseId){
+        if(_phaseId == 0){
+            require(balanceOf(_to) + _amount <= maxPerWallet, "Mint Limit Exceeded");
+            _;
+        }
+        else{
+            uint8 phaseLimit = phases[_phaseId].maxPerAddress;
+            require(balanceOf(_to) + _amount <= phaseLimit, "Mint Limit Exceeded");
+            _;
+        }
     }
 
     struct tokenGate{
@@ -81,6 +109,14 @@ contract Drop is ERC721{
         uint _requiredAmount;
         bool _isFungible;
     }
+
+    struct publicMint{
+        uint startTime;
+        uint endTime;
+        uint price;
+        uint maxPerWallet;
+    }
+
 
     function _canMint(uint _amount) internal view returns (bool){
         if (totalMinted + _amount > MAX_SUPPLY){
@@ -95,6 +131,7 @@ contract Drop is ERC721{
         return (price * amount) + mintFee;
     }
 
+
     function _mintNft(address _to, uint _amount) internal {  
         (bool success,) = payable(creator).call{value: msg.value}("");
         require(success, "Purchase Failed");  
@@ -104,6 +141,20 @@ contract Drop is ERC721{
             _safeMint(_to, tokenId);
         }
 
+    }
+
+
+    enum toggle{ENABLE, DISABLE}
+    bool publicMintEnabled;
+
+    // Toggle for Public minting process
+    function togglePublicMint(toggle _option) external onlyOwner{
+        if(_option == toggle.ENABLE){
+            enablePublicMint = true;
+        }
+        else{
+            enablePublicMint = false;
+        }
     }
 
 
@@ -126,24 +177,25 @@ contract Drop is ERC721{
             emit SetTokenGate(_allowedToken, "NFT", _requiredAmount);
     }
 
+    // total supply
     function supply() external view returns(uint){
         return MAX_SUPPLY;
     }
 
-    function checkPaused() external view returns (bool){
-        return paused;
-    }
 
-    function getMinted() external view returns(uint){
+    function getTotalMinted() external view returns(uint){
         return totalMinted;
     }
 
+/**
+* @dev Public minting function.
+* @param _amount is the amount of nfts to mint
+* @param _to is the address to mint the tokens to
+* @notice can only mint when public sale has started and the minting process is not paused by the creator
+* @notice minting is limited to the maximum amounts allowed 
+*/
 
-    error InsufficientFunds(uint _cost);
-    error SupplyExceeded(uint maxSupply);
-
-
-    function mintPublic(uint _amount, address _to) external payable saleStarted isPaused limit(_to, _amount){
+    function mintPublic(uint _amount, address _to) external payable phaseActive(0) isPaused limit(_to, _amount, 0){
         if (!_canMint(_amount)){
             revert SupplyExceeded(MAX_SUPPLY);
         }
@@ -152,30 +204,52 @@ contract Drop is ERC721{
             revert InsufficientFunds(totalCost);
         }
         _mintNft(_to, _amount);
-        // require(success, "Purchase Failed");
         emit Purchase(_to, tokenId, _amount);
     }
 
+
+    // function controlledMint(uint _amount, address _to) external payable  isPaused{
+    //     uint amountMintable = msg.value / price;
+    //     if (!_canMint(_amount)){
+    //         uint amountLeft = (MAX_SUPPLY - totalMinted);
+    //         if(amountLeft >= maxPerWallet){
+    //             amountMintable = maxPerWallet;
+    //         } else{
+    //             amountMintable = amountLeft;
+    //         }
+    //     }
+    //     uint totalCost = _getCost(amountMintable);
+    //     if(msg.value < totalCost){
+    //         revert InsufficientFunds(totalCost);
+    //     }
+    //     _mintNft(_to, amountMintable);
+    //     emit Purchase(msg.sender, tokenId, _amount);
+
+    // }
+
+    struct PresalePhase{
+        uint8 maxPerAddress;
+        string name;
+        uint price;
+        uint startTime;
+        uint endTime;
+        bytes32 merkleRoot;
+    }
+    
+    uint8 phaseIds;
+    mapping(uint8 => PresalePhase) public phases;
+    mapping(uint8 => bool) public phaseCheck;
+
     /**
-    * @dev Allows users to mint */
+    * @dev This function allows the creator to add presale phases
+    * @param _phases is an array of phases to be added
+    */
 
-
-    function controlledMint(uint _amount, address _to) external payable saleStarted isPaused{
-        uint amountMintable = msg.value / price;
-        if (!_canMint(_amount)){
-            uint amountLeft = (MAX_SUPPLY - totalMinted);
-            if(amountLeft >= maxPerWallet){
-                amountMintable = maxPerWallet;
-            } else{
-                amountMintable = amountLeft;
-            }
+    function setPhases(PresalePhase[] memory _phases) external onlyOwner{        
+        for(uint8 i; i < _phases.length; i++){
+            phases[i + 1] = _phases[i];
+            phaseCheck[i + 1] = true;
         }
-        uint totalCost = _getCost(amountMintable);
-        if(msg.value < totalCost){
-            revert InsufficientFunds(totalCost);
-        }
-        _mintNft(_to, amountMintable);
-        emit Purchase(msg.sender, tokenId, _amount);
 
     }
 
@@ -183,7 +257,7 @@ contract Drop is ERC721{
     * @dev Allows creator to airdrop NFTs to an account
     * @param _to is the address of the receipeient
     * @param _amount is the amount of NFTs to be airdropped
-    * Ensures amount to be minted does not exceed MAX_SUPPLY*/
+    * Ensures amount of tokens to be minted does not exceed MAX_SUPPLY*/
 
     function airdrop(address _to, uint _amount) external{
         if(!_canMint(_amount)){
@@ -211,38 +285,51 @@ contract Drop is ERC721{
     }
     
     // Pause mint process
-    function pauseSale() external saleStarted onlyOwner{
+    function pauseSale() external onlyOwner{
         paused = true;
         emit SalePaused();
     }
 
     // Resume mint process
-
-    function resumeSale() external saleStarted onlyOwner{
+    function resumeSale() external onlyOwner{
         paused = false;
         emit ResumeSale();
     }
 
-    function GatedMint(uint _amount) external payable{
-        if (!_canMint(_amount)){
-            revert SupplyExceeded(MAX_SUPPLY);
-        }
+    // function GatedMint(uint _amount) external payable{
+    //     if (!_canMint(_amount)){
+    //         revert SupplyExceeded(MAX_SUPPLY);
+    //     }
 
+    // }
+
+    // Withdraw funds from contract
+
+    function withdraw(uint _amount) external onlyOwner{
+        require(address(this).balance >= _amount, "Insufficient Funds");
+        (bool success, ) = payable(owner).call{value: _amount}("");
+        require(success, "Withdrawal Failed");
     }
 
     /**
     * @dev Check the whitelist status of an account based on merkle proof.
     * @param _proof is a merkle proof to check for verification.
-    * @param _root is a merkle root generated from the merkle tree.
-    * @param _amount is the amount of tokens to be mintes
-    * If amount exceeds the maximum allowed to be minted per walllet, function reverts.
+    * @param _amount is the amount of tokens to be minted.
+    * @param _phaseId is the presale phase the user is attempting to mint for.
+    * @notice If phase is not active, function reverts.
+    * @notice If amount exceeds the maximum allowed to be minted per walllet, function reverts.
     */
 
-    function whitelistMint(bytes32[] memory _proof, bytes32 _root, uint _amount) external saleStarted isPaused limit(msg.sender, _amount){
+    function whitelistMint(bytes32[] memory _proof, uint8 _amount, uint8 _phaseId) external phaseActive(_phaseId) isPaused limit(msg.sender, _amount, _phaseId){
+        if (!phaseCheck[_phaseId]){
+            revert InvalidPhase(_phaseId);
+        }
+
+        // PresalePhase memory phase = phases[_phaseId];
         if (!_canMint(_amount)){
             revert SupplyExceeded(MAX_SUPPLY);
         }
-        bool whitelisted = _proof.verify(_root, keccak256(abi.encodePacked(msg.sender)));
+        bool whitelisted = _proof.verify(phases[_phaseId].merkleRoot, keccak256(abi.encodePacked(msg.sender)));
         if(!whitelisted){
             revert NotWhitelisted(msg.sender);
         }
@@ -250,7 +337,7 @@ contract Drop is ERC721{
     }
 
 
-    // Creator address
+    // Return creator address
     function creatorAddress() public view returns(address){
         return owner;
     }
