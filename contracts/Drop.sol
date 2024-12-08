@@ -8,6 +8,10 @@ interface IERC20{
 }
 
 
+/**
+* @dev Implementation of an ERC721 drop.
+*/
+
 contract Drop is ERC721{
     
     uint public immutable MAX_SUPPLY;
@@ -21,12 +25,23 @@ contract Drop is ERC721{
     uint public mintFee;
     bool public paused;
     uint8 public maxPerWallet;
-    tokenGate[] public tokenGates;
     publicMint internal _publicMint;
     bool internal enablePublicMint = true;
     using MerkleProof for bytes32[];
 
 
+    /**
+    * @dev Initialize contract by setting necessary data.
+    * @param _name is the name of the collection.
+    * @param _symbol is the collection symbol.
+    * @param _maxSupply is the maximum supply of the collection.
+    * @param _startTime is the start time fot the public mint.
+    * @param _endTime is the ending time for the public mint.
+    * @param _owner is the address of the collection owner
+    * @param _mintFee is the platfor mint fee.
+    * @param _price is the mint price per nft for public mint.
+    * @param _maxPerWallet is the maximum nfts allowed to be minted by a wallet during the public mint
+    */
     constructor(string memory _name,
     string memory _symbol,
     uint _maxSupply,
@@ -66,12 +81,13 @@ contract Drop is ERC721{
     event ResumeSale();
     event SetTokenGate(address _token, string _type, uint _requiredAmount);
     
-
+    // Enforce owner priviledges
     modifier onlyOwner{
         require(msg.sender == owner, "Not Owner");
         _;
     }
 
+    // Block minting unless phase is active
     modifier phaseActive(uint8 _phaseId){
         if (_phaseId == 0){
             require(_publicMint.startTime <= block.timestamp && block.timestamp <= _publicMint.endTime, "Phase Inactive");
@@ -84,17 +100,21 @@ contract Drop is ERC721{
             require(phaseStartTime <= block.timestamp && block.timestamp <= phaseEndTime, "Phase Inactive");
         }
 
-    }    
+    }
 
+
+    // Block minting when phase is paused.
     modifier isPaused{
         require(!paused, "Sale Is Paused");
         _;
     }
 
-
+    /**
+    * @dev Enforce phase minting limit per address.  
+    */
     modifier limit(address _to, uint _amount, uint8 _phaseId){
         if(_phaseId == 0){
-            require(balanceOf(_to) + _amount <= maxPerWallet, "Mint Limit Exceeded");
+            require(balanceOf(_to) + _amount <= _publicMint.maxPerWallet, "Mint Limit Exceeded");
             _;
         }
         else{
@@ -104,12 +124,10 @@ contract Drop is ERC721{
         }
     }
 
-    struct tokenGate{
-        address _tokenAddress;
-        uint _requiredAmount;
-        bool _isFungible;
-    }
 
+    /**
+    * @dev Holds mint details for the public/general mint
+    */
     struct publicMint{
         uint startTime;
         uint endTime;
@@ -117,37 +135,13 @@ contract Drop is ERC721{
         uint maxPerWallet;
     }
 
-
-    function _canMint(uint _amount) internal view returns (bool){
-        if (totalMinted + _amount > MAX_SUPPLY){
-            return false;
-        } else{
-            return true;
-        }
-    }
-
-    
-    function _getCost(uint amount) internal view returns (uint cost){
-        return (price * amount) + mintFee;
-    }
-
-
-    function _mintNft(address _to, uint _amount) internal {  
-        (bool success,) = payable(creator).call{value: msg.value}("");
-        require(success, "Purchase Failed");  
-        for(uint i; i < _amount; i++){
-            tokenId += 1;
-            totalMinted += 1;
-            _safeMint(_to, tokenId);
-        }
-
-    }
-
-
     enum toggle{ENABLE, DISABLE}
     bool publicMintEnabled;
 
-    // Toggle for Public minting process
+    /**
+    * @dev Allows creator to enable or disable public mint.
+    * useful if creator only wants a whitelisted sale.
+    */
     function togglePublicMint(toggle _option) external onlyOwner{
         if(_option == toggle.ENABLE){
             enablePublicMint = true;
@@ -158,42 +152,13 @@ contract Drop is ERC721{
     }
 
 
-    function setFungibleTokenGate(address _allowedToken, uint _requiredAmount) external onlyOwner{
-        require (_allowedToken != address(0), "No Address Provided;");
-        require(_allowedToken.code.length > 0, "Not a token contract");
-        tokenGate storage newTokenGate = tokenGates.push();
-        newTokenGate._tokenAddress = _allowedToken;
-        newTokenGate._requiredAmount = _requiredAmount;
-        newTokenGate._isFungible = true;
-        emit SetTokenGate(_allowedToken, "ERC20", _requiredAmount);
-    }
-
-    function setNftGate(address _allowedToken, uint _requiredAmount) external onlyOwner{
-            require (_allowedToken != address(0), "No Address Provided;");
-            require(_allowedToken.code.length > 0, "Not a token contract");
-            tokenGate storage newTokenGate = tokenGates.push();
-            newTokenGate._tokenAddress = _allowedToken;
-            newTokenGate._requiredAmount = _requiredAmount;
-            emit SetTokenGate(_allowedToken, "NFT", _requiredAmount);
-    }
-
-    // total supply
-    function supply() external view returns(uint){
-        return MAX_SUPPLY;
-    }
-
-
-    function getTotalMinted() external view returns(uint){
-        return totalMinted;
-    }
-
-/**
-* @dev Public minting function.
-* @param _amount is the amount of nfts to mint
-* @param _to is the address to mint the tokens to
-* @notice can only mint when public sale has started and the minting process is not paused by the creator
-* @notice minting is limited to the maximum amounts allowed 
-*/
+    /**
+    * @dev Public minting function.
+    * @param _amount is the amount of nfts to mint
+    * @param _to is the address to mint the tokens to
+    * @notice can only mint when public sale has started and the minting process is not paused by the creator
+    * @notice minting is limited to the maximum amounts allowed 
+    */
 
     function mintPublic(uint _amount, address _to) external payable phaseActive(0) isPaused limit(_to, _amount, 0){
         if (!_canMint(_amount)){
@@ -208,24 +173,7 @@ contract Drop is ERC721{
     }
 
 
-    // function controlledMint(uint _amount, address _to) external payable  isPaused{
-    //     uint amountMintable = msg.value / price;
-    //     if (!_canMint(_amount)){
-    //         uint amountLeft = (MAX_SUPPLY - totalMinted);
-    //         if(amountLeft >= maxPerWallet){
-    //             amountMintable = maxPerWallet;
-    //         } else{
-    //             amountMintable = amountLeft;
-    //         }
-    //     }
-    //     uint totalCost = _getCost(amountMintable);
-    //     if(msg.value < totalCost){
-    //         revert InsufficientFunds(totalCost);
-    //     }
-    //     _mintNft(_to, amountMintable);
-    //     emit Purchase(msg.sender, tokenId, _amount);
-
-    // }
+    // Holds data for merkle tree based whitelist minting.
 
     struct PresalePhase{
         uint8 maxPerAddress;
@@ -236,6 +184,7 @@ contract Drop is ERC721{
         bytes32 merkleRoot;
     }
     
+    // Sequential phase identities, 0 represents the public minting phase.
     uint8 phaseIds;
     mapping(uint8 => PresalePhase) public phases;
     mapping(uint8 => bool) public phaseCheck;
@@ -244,12 +193,15 @@ contract Drop is ERC721{
     * @dev This function allows the creator to add presale phases
     * @param _phases is an array of phases to be added
     */
-
     function setPhases(PresalePhase[] memory _phases) external onlyOwner{        
         for(uint8 i; i < _phases.length; i++){
             phases[i + 1] = _phases[i];
             phaseCheck[i + 1] = true;
         }
+
+    }
+
+    function getPresalePhases() external returns(PresalePhase[] memory ){
 
     }
 
@@ -336,9 +288,65 @@ contract Drop is ERC721{
         _mintNft(msg.sender, _amount);
     }
 
+      // total supply
+    function supply() external view returns(uint){
+        return MAX_SUPPLY;
+    }
+
+    // Return the total NFTs minted
+    function getTotalMinted() external view returns(uint){
+        return totalMinted;
+    }
+
+
 
     // Return creator address
     function creatorAddress() public view returns(address){
         return owner;
+    } 
+ 
+ 
+ 
+    /**
+    * @dev Checks if a certain amount of token can be minted. 
+    * @param _amount is the amount of tokens to be minted.
+    * @notice Ensures that minting _amount tokens does not cause the total minted tokens to exceed max supply.
+    */
+    function _canMint(uint _amount) internal view returns (bool){
+        if (totalMinted + _amount > MAX_SUPPLY){
+            return false;
+        } else{
+            return true;
+        }
     }
+
+
+    /**
+    * @dev Compute the cost of minting a certain amount of tokens.
+    * @param _amount is the amount of tokens to be minted.
+    */
+    function _getCost(uint _amount) internal view returns (uint cost){
+        return (price * _amount) + mintFee;
+    }
+
+
+    /**
+     * @dev Safe minting function that will mint n amount of tokens to an address.
+     * @param _to is the address of the receipient.
+     * @param _amount is the amount of tokens to be minted.
+    */
+
+    function _mintNft(address _to, uint _amount) internal {  
+        (bool success,) = payable(creator).call{value: msg.value}("");
+        require(success, "Purchase Failed");  
+        for(uint i; i < _amount; i++){
+            tokenId += 1;
+            totalMinted += 1;
+            _safeMint(_to, tokenId);
+        }
+
+    }
+
+
+ 
 }
