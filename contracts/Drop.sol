@@ -74,12 +74,15 @@ contract Drop is ERC721{
     error InsufficientFunds(uint _cost);
     error SupplyExceeded(uint maxSupply);
     error InvalidPhase(uint8 _phaseId);
+    error ZeroAddress();
 
     event SalePaused();
     event Purchase(address _buyer, uint _tokenId, uint _amount);
     event Airdrop(address _to, uint _tokenId, uint _amount);
     event ResumeSale();
     event SetTokenGate(address _token, string _type, uint _requiredAmount);
+    event setPhase(uint _phaseCount);    
+
     
     // Enforce owner priviledges
     modifier onlyOwner{
@@ -164,6 +167,7 @@ contract Drop is ERC721{
         if (!_canMint(_amount)){
             revert SupplyExceeded(MAX_SUPPLY);
         }
+
         uint totalCost = _getCost(_amount);
         if(msg.value < totalCost){
             revert InsufficientFunds(totalCost);
@@ -188,6 +192,7 @@ contract Drop is ERC721{
     uint8 phaseIds;
     mapping(uint8 => PresalePhase) public phases;
     mapping(uint8 => bool) public phaseCheck;
+    PresalePhase[] internal _returnablePhases;
 
     /**
     * @dev This function allows the creator to add presale phases
@@ -197,12 +202,16 @@ contract Drop is ERC721{
         for(uint8 i; i < _phases.length; i++){
             phases[i + 1] = _phases[i];
             phaseCheck[i + 1] = true;
+            _returnablePhases.push(phases[i + 1]);
         }
 
+        emit setPhase(_phases.length);
+
     }
+    
 
-    function getPresalePhases() external returns(PresalePhase[] memory ){
-
+    function getPresalePhases() external view returns(PresalePhase[] memory ){
+        return _returnablePhases;
     }
 
     /**
@@ -211,7 +220,8 @@ contract Drop is ERC721{
     * @param _amount is the amount of NFTs to be airdropped
     * Ensures amount of tokens to be minted does not exceed MAX_SUPPLY*/
 
-    function airdrop(address _to, uint _amount) external{
+
+    function airdrop(address _to, uint _amount) external onlyOwner{
         if(!_canMint(_amount)){
             revert SupplyExceeded(MAX_SUPPLY);
         }
@@ -337,6 +347,10 @@ contract Drop is ERC721{
     */
 
     function _mintNft(address _to, uint _amount) internal {  
+        if (_to == address(0)){
+            revert ZeroAddress();
+        }
+
         (bool success,) = payable(creator).call{value: msg.value}("");
         require(success, "Purchase Failed");  
         for(uint i; i < _amount; i++){
