@@ -18,15 +18,18 @@ contract Drop is ERC721{
     uint public totalMinted;
     uint private immutable price;
     address public immutable owner;
-    address public immutable creator;
     uint private tokenId;
-    uint private startTime;
     uint private royalty;
     uint public mintFee;
     bool public paused;
-    uint8 public maxPerWallet;
     publicMint internal _publicMint;
     bool internal enablePublicMint = true;
+    uint8 phaseIds;
+    // Sequential phase identities, 0 represents the public minting phase.
+    mapping(uint8 => PresalePhase) public phases;
+    mapping(uint8 => bool) public phaseCheck;
+    PresalePhase[] internal _returnablePhases;
+    
     using MerkleProof for bytes32[];
 
 
@@ -35,10 +38,10 @@ contract Drop is ERC721{
     * @param _name is the name of the collection.
     * @param _symbol is the collection symbol.
     * @param _maxSupply is the maximum supply of the collection.
-    * @param _startTime is the start time fot the public mint.
+    * @param _startTime is the start time for the public mint.
     * @param _endTime is the ending time for the public mint.
     * @param _owner is the address of the collection owner
-    * @param _mintFee is the platfor mint fee.
+    * @param _mintFee is the platform mint fee.
     * @param _price is the mint price per nft for public mint.
     * @param _maxPerWallet is the maximum nfts allowed to be minted by a wallet during the public mint
     */
@@ -48,21 +51,20 @@ contract Drop is ERC721{
     uint _startTime,
     uint _endTime,
     address _owner,   
-    address _creator,
     uint _mintFee,
     uint _price,
-    uint8 _maxPerWallet) ERC721(_name, _symbol){
-        creator = _creator;
+    uint8 _maxPerWallet,
+    bool _includePresale,
+    PresalePhase[] memory _presalePhases) ERC721(_name, _symbol){
         MAX_SUPPLY = _maxSupply;
-        startTime = _startTime;
         price = _price;
-        maxPerWallet = _maxPerWallet;
         owner = _owner;
         mintFee = _mintFee;
         _publicMint.startTime = _startTime;
         _publicMint.endTime = _endTime;
         _publicMint.price = _price;
         _publicMint.maxPerWallet = _maxPerWallet;
+        _setPhases(_includePresale, _presalePhases);
     }
 
     receive() external payable { }
@@ -82,6 +84,8 @@ contract Drop is ERC721{
     event ResumeSale();
     event SetTokenGate(address _token, string _type, uint _requiredAmount);
     event setPhase(uint _phaseCount);    
+    event PublicMintEnabled();
+    event PublicMintDisabled();
 
     
     // Enforce owner priviledges
@@ -148,9 +152,11 @@ contract Drop is ERC721{
     function togglePublicMint(toggle _option) external onlyOwner{
         if(_option == toggle.ENABLE){
             enablePublicMint = true;
+            emit PublicMintEnabled();
         }
         else{
             enablePublicMint = false;
+            emit PublicMintDisabled();
         }
     }
 
@@ -160,10 +166,10 @@ contract Drop is ERC721{
     * @param _amount is the amount of nfts to mint
     * @param _to is the address to mint the tokens to
     * @notice can only mint when public sale has started and the minting process is not paused by the creator
-    * @notice minting is limited to the maximum amounts allowed 
+    * @notice minting is limited to the maximum amounts allowed on the public mint phase.
     */
 
-    function mintPublic(uint _amount, address _to) external payable phaseActive(0) isPaused limit(_to, _amount, 0){
+    function mintPublic(uint _amount, address _to) external payable phaseActive(0) limit(_to, _amount, 0){
         if (!_canMint(_amount)){
             revert SupplyExceeded(MAX_SUPPLY);
         }
@@ -177,7 +183,7 @@ contract Drop is ERC721{
     }
 
 
-    // Holds data for merkle tree based whitelist minting.
+    // Holds data for merkle tree based whitelist phase.
 
     struct PresalePhase{
         uint8 maxPerAddress;
@@ -187,30 +193,30 @@ contract Drop is ERC721{
         uint endTime;
         bytes32 merkleRoot;
     }
-    
-    // Sequential phase identities, 0 represents the public minting phase.
-    uint8 phaseIds;
-    mapping(uint8 => PresalePhase) public phases;
-    mapping(uint8 => bool) public phaseCheck;
-    PresalePhase[] internal _returnablePhases;
 
     /**
-    * @dev This function allows the creator to add presale phases
-    * @param _phases is an array of phases to be added
+    * @dev adds new presale phase for contract
+    * @param _phase is the new phase to be added
     */
-    function setPhases(PresalePhase[] memory _phases) external onlyOwner{        
-        for(uint8 i; i < _phases.length; i++){
-            phases[i + 1] = _phases[i];
-            phaseCheck[i + 1] = true;
-            _returnablePhases.push(phases[i + 1]);
-        }
 
-        emit setPhase(_phases.length);
+    function addPresalePhase(PresalePhase calldata _phase) external onlyOwner{
+            phases[phaseIds + 1] = _phase;
+            phaseCheck[phaseIds + 1] = true;
+            _returnablePhases.push(_phase);
+            phaseIds += 1;
+    }
+
+
+    function removePhase(uint8 _phaseId) external onlyOwner{
+        if (!phaseCheck[_phaseId]){
+            revert InvalidPhase(_phaseId);
+        }
+        delete phases[_phaseId];
 
     }
-    
 
-    function getPresalePhases() external view returns(PresalePhase[] memory ){
+    // getter for presale phases.
+    function getPresalePhases() external view returns(PresalePhase[] memory){
         return _returnablePhases;
     }
 
@@ -219,7 +225,6 @@ contract Drop is ERC721{
     * @param _to is the address of the receipeient
     * @param _amount is the amount of NFTs to be airdropped
     * Ensures amount of tokens to be minted does not exceed MAX_SUPPLY*/
-
 
     function airdrop(address _to, uint _amount) external onlyOwner{
         if(!_canMint(_amount)){
@@ -258,13 +263,6 @@ contract Drop is ERC721{
         emit ResumeSale();
     }
 
-    // function GatedMint(uint _amount) external payable{
-    //     if (!_canMint(_amount)){
-    //         revert SupplyExceeded(MAX_SUPPLY);
-    //     }
-
-    // }
-
     // Withdraw funds from contract
 
     function withdraw(uint _amount) external onlyOwner{
@@ -282,7 +280,7 @@ contract Drop is ERC721{
     * @notice If amount exceeds the maximum allowed to be minted per walllet, function reverts.
     */
 
-    function whitelistMint(bytes32[] memory _proof, uint8 _amount, uint8 _phaseId) external phaseActive(_phaseId) isPaused limit(msg.sender, _amount, _phaseId){
+    function whitelistMint(bytes32[] memory _proof, uint8 _amount, uint8 _phaseId) external phaseActive(_phaseId) limit(msg.sender, _amount, _phaseId){
         if (!phaseCheck[_phaseId]){
             revert InvalidPhase(_phaseId);
         }
@@ -346,12 +344,12 @@ contract Drop is ERC721{
      * @param _amount is the amount of tokens to be minted.
     */
 
-    function _mintNft(address _to, uint _amount) internal {  
+    function _mintNft(address _to, uint _amount) internal isPaused {  
         if (_to == address(0)){
             revert ZeroAddress();
         }
 
-        (bool success,) = payable(creator).call{value: msg.value}("");
+        (bool success,) = payable(owner).call{value: msg.value}("");
         require(success, "Purchase Failed");  
         for(uint i; i < _amount; i++){
             tokenId += 1;
@@ -361,6 +359,22 @@ contract Drop is ERC721{
 
     }
 
+        /**
+    * @dev This function allows the creator to add presale phases when initializing the contract.
+    * @param _phases is an array of phases to be added.
+    * @notice Phases can later be added if not included during contract initialization.
+    */
 
- 
+    function _setPhases(bool _enabled, PresalePhase[] memory _phases) internal onlyOwner{
+        if(_enabled){
+        for(uint8 i; i < _phases.length; i++){
+            phases[phaseIds + 1] = _phases[i];
+            phaseCheck[phaseIds + 1] = true;
+            _returnablePhases.push(phases[phaseIds + 1]);
+            phaseIds += 1;
+        }
+        emit setPhase(_phases.length);
+        }
+    }
+
 }
