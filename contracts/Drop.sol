@@ -39,7 +39,7 @@ contract Drop is ERC721{
     * @param _symbol is the collection symbol.
     * @param _maxSupply is the maximum supply of the collection.
     * @param _startTime is the start time for the public mint.
-    * @param _endTime is the ending time for the public mint.
+    * @param _duration is the mint duration for the public mint.
     * @param _owner is the address of the collection owner
     * @param _mintFee is the platform mint fee.
     * @param _price is the mint price per nft for public mint.
@@ -49,7 +49,7 @@ contract Drop is ERC721{
     string memory _symbol,
     uint _maxSupply,
     uint _startTime,
-    uint _endTime,
+    uint _duration,
     address _owner,   
     uint _mintFee,
     uint _price,
@@ -60,8 +60,8 @@ contract Drop is ERC721{
         price = _price;
         owner = _owner;
         mintFee = _mintFee;
-        _publicMint.startTime = _startTime;
-        _publicMint.endTime = _endTime;
+        _publicMint.startTime = block.timestamp + _startTime;
+        _publicMint.endTime = block.timestamp + _startTime + _duration;
         _publicMint.price = _price;
         _publicMint.maxPerWallet = _maxPerWallet;
         _setPhases(_includePresale, _presalePhases);
@@ -71,6 +71,9 @@ contract Drop is ERC721{
 
     fallback() external payable { }
 
+    function getTime() external view returns(uint){
+        return block.timestamp;
+    }
 
     error NotWhitelisted(address _address);
     error InsufficientFunds(uint _cost);
@@ -174,7 +177,7 @@ contract Drop is ERC721{
             revert SupplyExceeded(MAX_SUPPLY);
         }
 
-        uint totalCost = _getCost(_amount);
+        uint totalCost = _getCost(0, _amount);
         if(msg.value < totalCost){
             revert InsufficientFunds(totalCost);
         }
@@ -201,6 +204,8 @@ contract Drop is ERC721{
 
     function addPresalePhase(PresalePhase calldata _phase) external onlyOwner{
             phases[phaseIds + 1] = _phase;
+            phases[phaseIds + 1].startTime += block.timestamp;
+            phases[phaseIds + 1].endTime += block.timestamp;
             phaseCheck[phaseIds + 1] = true;
             _returnablePhases.push(_phase);
             phaseIds += 1;
@@ -212,7 +217,6 @@ contract Drop is ERC721{
             revert InvalidPhase(_phaseId);
         }
         delete phases[_phaseId];
-
     }
 
     // getter for presale phases.
@@ -280,7 +284,7 @@ contract Drop is ERC721{
     * @notice If amount exceeds the maximum allowed to be minted per walllet, function reverts.
     */
 
-    function whitelistMint(bytes32[] memory _proof, uint8 _amount, uint8 _phaseId) external phaseActive(_phaseId) limit(msg.sender, _amount, _phaseId){
+    function whitelistMint(bytes32[] memory _proof, uint8 _amount, uint8 _phaseId) external payable phaseActive(_phaseId) limit(msg.sender, _amount, _phaseId){
         if (!phaseCheck[_phaseId]){
             revert InvalidPhase(_phaseId);
         }
@@ -289,6 +293,12 @@ contract Drop is ERC721{
         if (!_canMint(_amount)){
             revert SupplyExceeded(MAX_SUPPLY);
         }
+
+        uint totalCost = _getCost(_phaseId, _amount);
+        if(msg.value < totalCost){
+            revert InsufficientFunds(totalCost);
+        }
+    
         bool whitelisted = _proof.verify(phases[_phaseId].merkleRoot, keccak256(abi.encodePacked(msg.sender)));
         if(!whitelisted){
             revert NotWhitelisted(msg.sender);
@@ -333,8 +343,15 @@ contract Drop is ERC721{
     * @dev Compute the cost of minting a certain amount of tokens.
     * @param _amount is the amount of tokens to be minted.
     */
-    function _getCost(uint _amount) internal view returns (uint cost){
-        return (price * _amount) + mintFee;
+    function _getCost(uint8 _phaseId, uint _amount) public view returns (uint cost){
+        if (_phaseId == 0){
+            return (price * _amount) + mintFee;
+        }
+
+        else{
+            return (phases[_phaseId].price * _amount) + mintFee;
+        }
+
     }
 
 
@@ -368,6 +385,8 @@ contract Drop is ERC721{
     function _setPhases(bool _enabled, PresalePhase[] memory _phases) internal onlyOwner{
         if(_enabled){
         for(uint8 i; i < _phases.length; i++){
+            _phases[i].startTime = block.timestamp + _phases[i].startTime;
+            _phases[i].endTime = block.timestamp + _phases[i].endTime;
             phases[phaseIds + 1] = _phases[i];
             phaseCheck[phaseIds + 1] = true;
             _returnablePhases.push(phases[phaseIds + 1]);
