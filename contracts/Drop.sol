@@ -3,13 +3,29 @@ pragma solidity 0.8.25;
 import {ERC721} from ".deps/github/OpenZeppelin/openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
 import {MerkleProof} from ".deps/github/OpenZeppelin/openzeppelin-contracts/contracts/utils/cryptography/MerkleProof.sol";
 
+library PresaleLib{
+    // Holds data for merkle tree based whitelist phase.
+    struct PresalePhase{
+        uint8 maxPerAddress;
+        string name;
+        uint price;
+        uint startTime;
+        uint endTime;
+        bytes32 merkleRoot;
+    }
+}
+
+
 interface IERC20{
     function balanceOf(address _account) external view returns(uint);
 }
 
 
+
+
 /**
 * @dev Implementation of an ERC721 drop.
+
 */
 
 contract Drop is ERC721{
@@ -26,9 +42,9 @@ contract Drop is ERC721{
     bool internal enablePublicMint = true;
     uint8 phaseIds;
     // Sequential phase identities, 0 represents the public minting phase.
-    mapping(uint8 => PresalePhase) public phases;
+    mapping(uint8 => PresaleLib.PresalePhase) public phases;
     mapping(uint8 => bool) public phaseCheck;
-    PresalePhase[] internal _returnablePhases;
+    PresaleLib.PresalePhase[] internal _returnablePhases;
     
     using MerkleProof for bytes32[];
 
@@ -55,7 +71,7 @@ contract Drop is ERC721{
     uint _price,
     uint8 _maxPerWallet,
     bool _includePresale,
-    PresalePhase[] memory _presalePhases) ERC721(_name, _symbol){
+    PresaleLib.PresalePhase[] memory _presalePhases) ERC721(_name, _symbol){
         MAX_SUPPLY = _maxSupply;
         price = _price;
         owner = _owner;
@@ -101,7 +117,6 @@ contract Drop is ERC721{
     modifier phaseActive(uint8 _phaseId){
         if (_phaseId == 0){
             require(_publicMint.startTime <= block.timestamp && block.timestamp <= _publicMint.endTime, "Phase Inactive");
-        _;
         }
 
         else{
@@ -109,7 +124,7 @@ contract Drop is ERC721{
             uint phaseEndTime = phases[_phaseId].endTime;
             require(phaseStartTime <= block.timestamp && block.timestamp <= phaseEndTime, "Phase Inactive");
         }
-
+        _;
     }
 
 
@@ -125,13 +140,12 @@ contract Drop is ERC721{
     modifier limit(address _to, uint _amount, uint8 _phaseId){
         if(_phaseId == 0){
             require(balanceOf(_to) + _amount <= _publicMint.maxPerWallet, "Mint Limit Exceeded");
-            _;
         }
         else{
             uint8 phaseLimit = phases[_phaseId].maxPerAddress;
             require(balanceOf(_to) + _amount <= phaseLimit, "Mint Limit Exceeded");
-            _;
         }
+        _;
     }
 
 
@@ -185,28 +199,19 @@ contract Drop is ERC721{
         emit Purchase(_to, tokenId, _amount);
     }
 
-
-    // Holds data for merkle tree based whitelist phase.
-
-    struct PresalePhase{
-        uint8 maxPerAddress;
-        string name;
-        uint price;
-        uint startTime;
-        uint endTime;
-        bytes32 merkleRoot;
-    }
-
+    
+    
     /**
     * @dev adds new presale phase for contract
     * @param _phase is the new phase to be added
     */
 
-    function addPresalePhase(PresalePhase calldata _phase) external onlyOwner{
-            phases[phaseIds + 1] = _phase;
-            phases[phaseIds + 1].startTime += block.timestamp;
-            phases[phaseIds + 1].endTime += block.timestamp;
-            phaseCheck[phaseIds + 1] = true;
+    function addPresalePhase(PresaleLib.PresalePhase calldata _phase) external onlyOwner{
+            uint8 phaseId = phaseIds + 1;
+            phases[phaseId] = _phase;
+            phases[phaseId].startTime += block.timestamp;
+            phases[phaseId].endTime += block.timestamp;
+            phaseCheck[phaseIds] = true;
             _returnablePhases.push(_phase);
             phaseIds += 1;
     }
@@ -220,7 +225,7 @@ contract Drop is ERC721{
     }
 
     // getter for presale phases.
-    function getPresalePhases() external view returns(PresalePhase[] memory){
+    function getPresalePhases() external view returns(PresaleLib.PresalePhase[] memory){
         return _returnablePhases;
     }
 
@@ -288,19 +293,19 @@ contract Drop is ERC721{
         if (!phaseCheck[_phaseId]){
             revert InvalidPhase(_phaseId);
         }
-
         // PresalePhase memory phase = phases[_phaseId];
         if (!_canMint(_amount)){
             revert SupplyExceeded(MAX_SUPPLY);
         }
-
+        
+        // get mint cost
         uint totalCost = _getCost(_phaseId, _amount);
-        if(msg.value < totalCost){
-            revert InsufficientFunds(totalCost);
-        }
-    
+        require(msg.value > totalCost, "Insufficient Funds");
+        // verify whitelist
         bool whitelisted = _proof.verify(phases[_phaseId].merkleRoot, keccak256(abi.encodePacked(msg.sender)));
-        if(!whitelisted){
+       // require(whitelisted, "Address not in whitelist");
+        
+        if(whitelisted == false){
             revert NotWhitelisted(msg.sender);
         }
         _mintNft(msg.sender, _amount);
@@ -311,18 +316,20 @@ contract Drop is ERC721{
         return MAX_SUPPLY;
     }
 
+    function checkWhitelist(address _address, uint8 _phaseId, bytes32[] calldata _proof) external view returns(bool){
+        return MerkleProof.verify(_proof, phases[_phaseId].merkleRoot, keccak256(abi.encodePacked(_address)));
+    }
+
     // Return the total NFTs minted
     function getTotalMinted() external view returns(uint){
         return totalMinted;
     }
 
 
-
     // Return creator address
     function creatorAddress() public view returns(address){
         return owner;
     } 
- 
  
  
     /**
@@ -354,7 +361,6 @@ contract Drop is ERC721{
 
     }
 
-
     /**
      * @dev Safe minting function that will mint n amount of tokens to an address.
      * @param _to is the address of the receipient.
@@ -382,7 +388,7 @@ contract Drop is ERC721{
     * @notice Phases can later be added if not included during contract initialization.
     */
 
-    function _setPhases(bool _enabled, PresalePhase[] memory _phases) internal onlyOwner{
+    function _setPhases(bool _enabled, PresaleLib.PresalePhase[] memory _phases) internal onlyOwner{
         if(_enabled){
         for(uint8 i; i < _phases.length; i++){
             _phases[i].startTime = block.timestamp + _phases[i].startTime;
@@ -395,5 +401,4 @@ contract Drop is ERC721{
         emit setPhase(_phases.length);
         }
     }
-
 }
