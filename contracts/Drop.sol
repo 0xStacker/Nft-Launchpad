@@ -21,8 +21,6 @@ interface IERC20{
 }
 
 
-
-
 /**
 * @dev Implementation of an ERC721 drop.
 
@@ -40,7 +38,7 @@ contract Drop is ERC721{
     bool public paused;
     publicMint internal _publicMint;
     bool internal enablePublicMint = true;
-    uint8 phaseIds;
+    uint8 internal phaseIds;
     // Sequential phase identities, 0 represents the public minting phase.
     mapping(uint8 => PresaleLib.PresalePhase) public phases;
     mapping(uint8 => bool) public phaseCheck;
@@ -102,7 +100,7 @@ contract Drop is ERC721{
     event Airdrop(address _to, uint _tokenId, uint _amount);
     event ResumeSale();
     event SetTokenGate(address _token, string _type, uint _requiredAmount);
-    event setPhase(uint _phaseCount);    
+    event SetPhase(uint _phaseCount);    
     event PublicMintEnabled();
     event PublicMintDisabled();
 
@@ -300,7 +298,7 @@ contract Drop is ERC721{
         
         // get mint cost
         uint totalCost = _getCost(_phaseId, _amount);
-        require(msg.value > totalCost, "Insufficient Funds");
+        require(msg.value >= totalCost, "Insufficient Funds");
         // verify whitelist
         bool whitelisted = _proof.verify(phases[_phaseId].merkleRoot, keccak256(abi.encodePacked(msg.sender)));
        // require(whitelisted, "Address not in whitelist");
@@ -398,7 +396,7 @@ contract Drop is ERC721{
             _returnablePhases.push(phases[phaseIds + 1]);
             phaseIds += 1;
         }
-        emit setPhase(_phases.length);
+        emit SetPhase(_phases.length);
         }
     }
 }
