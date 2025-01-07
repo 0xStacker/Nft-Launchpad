@@ -1,18 +1,55 @@
 //SPDX-License-Identifier: MIT
 pragma solidity 0.8.25;
 import "./Drop.sol";
+import {PresaleLib} from "./PresaleLib.sol";
 
 contract LaunchFactory{
     uint mintFee = 200000000000000;
     address[] public dropList;
+    mapping(address => Drop[] _drops) public userDrops;
+
+    /*
+        string memory _name,
+    string memory _symbol,
+    uint _maxSupply,
+    uint _startTime,
+    uint _duration,
+    address _owner,   
+    uint _mintFee,
+    uint _price,
+    uint8 _maxPerWallet,
+    bool _includePresale,
+    PresaleLib.PresalePhase[] memory _presalePhases   
+    */
     
-    function createERC721Drop(string memory _name, string memory _symbol,
-     uint _maxSupply, uint _startTime, uint _price, uint _maxPerWallet) external returns(address){
-        Drop newDrop = new Drop(_name, _symbol, _maxSupply, _startTime,msg.sender, msg.sender,
-        mintFee, _price, _maxPerWallet);
+    function createERC721Drop(string memory _name,
+    string memory _symbol,
+    uint _maxSupply,
+    uint _startTime,
+    uint _duration,
+    address _owner,
+    uint _price,
+    uint8 _maxPerWallet
+    ) external returns(address){
+        Drop newDrop = new Drop(_name,
+        _symbol,
+        _maxSupply,
+        _startTime,
+        _duration,
+        _owner,
+        mintFee,
+        _price,
+        _maxPerWallet);
+
         dropList.push(address(newDrop));
+        userDrops[_owner].push(newDrop);
         return address(newDrop);
        }
+       
+    
+    function getDropsByCreator(address _creator) external view returns(Drop[] memory){
+        return userDrops[_creator];
+    }
     
     
 }
