@@ -2,18 +2,7 @@
 pragma solidity 0.8.25;
 import {ERC721} from ".deps/github/OpenZeppelin/openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
 import {MerkleProof} from ".deps/github/OpenZeppelin/openzeppelin-contracts/contracts/utils/cryptography/MerkleProof.sol";
-
-library PresaleLib{
-    // Holds data for merkle tree based whitelist phase.
-    struct PresalePhase{
-        uint8 maxPerAddress;
-        string name;
-        uint price;
-        uint startTime;
-        uint endTime;
-        bytes32 merkleRoot;
-    }
-}
+import {PresaleLib} from "./PresaleLib.sol";
 
 
 interface IERC20{
@@ -58,7 +47,9 @@ contract Drop is ERC721{
     * @param _mintFee is the platform mint fee.
     * @param _price is the mint price per nft for public mint.
     * @param _maxPerWallet is the maximum nfts allowed to be minted by a wallet during the public mint
+ 
     */
+
     constructor(string memory _name,
     string memory _symbol,
     uint _maxSupply,
@@ -67,27 +58,22 @@ contract Drop is ERC721{
     address _owner,   
     uint _mintFee,
     uint _price,
-    uint8 _maxPerWallet,
-    bool _includePresale,
-    PresaleLib.PresalePhase[] memory _presalePhases) ERC721(_name, _symbol){
+    uint8 _maxPerWallet) ERC721(_name, _symbol){
         MAX_SUPPLY = _maxSupply;
         price = _price;
+        // Ensure that owner is an EOA
+        require(_owner.code.length == 0, "Owner cannot be a contract");
         owner = _owner;
         mintFee = _mintFee;
         _publicMint.startTime = block.timestamp + _startTime;
         _publicMint.endTime = block.timestamp + _startTime + _duration;
         _publicMint.price = _price;
         _publicMint.maxPerWallet = _maxPerWallet;
-        _setPhases(_includePresale, _presalePhases);
     }
 
     receive() external payable { }
 
     fallback() external payable { }
-
-    function getTime() external view returns(uint){
-        return block.timestamp;
-    }
 
     error NotWhitelisted(address _address);
     error InsufficientFunds(uint _cost);
@@ -125,8 +111,7 @@ contract Drop is ERC721{
         _;
     }
 
-
-    // Block minting when phase is paused.
+    // Allows owner to pause minting at any phase.
     modifier isPaused{
         require(!paused, "Sale Is Paused");
         _;
@@ -198,7 +183,6 @@ contract Drop is ERC721{
     }
 
     
-    
     /**
     * @dev adds new presale phase for contract
     * @param _phase is the new phase to be added
@@ -207,8 +191,8 @@ contract Drop is ERC721{
     function addPresalePhase(PresaleLib.PresalePhase calldata _phase) external onlyOwner{
             uint8 phaseId = phaseIds + 1;
             phases[phaseId] = _phase;
-            phases[phaseId].startTime += block.timestamp;
-            phases[phaseId].endTime += block.timestamp;
+            phases[phaseId].startTime = phases[phaseId].startTime + block.timestamp;
+            phases[phaseId].endTime = phases[phaseId].endTime + block.timestamp;
             phaseCheck[phaseIds] = true;
             _returnablePhases.push(_phase);
             phaseIds += 1;
@@ -300,7 +284,7 @@ contract Drop is ERC721{
         uint totalCost = _getCost(_phaseId, _amount);
         require(msg.value >= totalCost, "Insufficient Funds");
         // verify whitelist
-        bool whitelisted = _proof.verify(phases[_phaseId].merkleRoot, keccak256(abi.encodePacked(msg.sender)));
+        bool whitelisted = _proof.verify(phases[_phaseId].merkleRoot, keccak256(abi.encode(msg.sender)));
        // require(whitelisted, "Address not in whitelist");
         
         if(whitelisted == false){
@@ -315,7 +299,7 @@ contract Drop is ERC721{
     }
 
     function checkWhitelist(address _address, uint8 _phaseId, bytes32[] calldata _proof) external view returns(bool){
-        return MerkleProof.verify(_proof, phases[_phaseId].merkleRoot, keccak256(abi.encodePacked(_address)));
+        return MerkleProof.verify(_proof, phases[_phaseId].merkleRoot, keccak256(abi.encode(_address)));
     }
 
     // Return the total NFTs minted
