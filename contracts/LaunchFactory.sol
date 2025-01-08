@@ -1,12 +1,12 @@
 //SPDX-License-Identifier: MIT
 pragma solidity 0.8.25;
-import "./Drop.sol";
+import {Drop} from "./Drop.sol";
 import {PresaleLib} from "./PresaleLib.sol";
 
 contract LaunchFactory{
     uint mintFee = 200000000000000;
     address[] public dropList;
-    mapping(address => Drop[] _drops) public userDrops;
+    mapping(address => address[] _drops) public userDrops;
 
     /*
         string memory _name,
@@ -40,14 +40,13 @@ contract LaunchFactory{
         mintFee,
         _price,
         _maxPerWallet);
-
         dropList.push(address(newDrop));
-        userDrops[_owner].push(newDrop);
+        userDrops[_owner].push(address(newDrop));
         return address(newDrop);
        }
        
     
-    function getDropsByCreator(address _creator) external view returns(Drop[] memory){
+    function getDropsByCreator(address _creator) external view returns(address[] memory){
         return userDrops[_creator];
     }
     
