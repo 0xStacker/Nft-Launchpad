@@ -19,6 +19,7 @@ contract Drop is ERC721{
     
     uint public immutable MAX_SUPPLY;
     uint public totalMinted;
+    uint8 constant PHASELIMIT = 5;
     uint private immutable price;
     address public immutable owner;
     uint private tokenId;
@@ -89,11 +90,20 @@ contract Drop is ERC721{
     event SetPhase(uint _phaseCount);    
     event PublicMintEnabled();
     event PublicMintDisabled();
+    event AddPresalePhase(string _phaseName, uint8 _phaseId);
+    event RemovePresalePhase(string _phaseName, uint8 _phaseId);
+    event BatchAirdrop(address[] _receipients, uint _amount);
 
     
-    // Enforce owner priviledges
+    // Enforce Creator priviledges
     modifier onlyOwner{
         require(msg.sender == owner, "Not Owner");
+        _;
+    }
+
+    // Enforce owner priviledges
+    modifier tokenOwner(uint _tokenId){
+        require(msg.sender == ownerOf(tokenId));
         _;
     }
 
@@ -189,13 +199,15 @@ contract Drop is ERC721{
     */
 
     function addPresalePhase(PresaleLib.PresalePhase calldata _phase) external onlyOwner{
+           // bytes32 phaseId = PresaleLib.computePhaseId();
             uint8 phaseId = phaseIds + 1;
             phases[phaseId] = _phase;
             phases[phaseId].startTime = phases[phaseId].startTime + block.timestamp;
             phases[phaseId].endTime = phases[phaseId].endTime + block.timestamp;
-            phaseCheck[phaseIds] = true;
+            phaseCheck[phaseId] = true;
             _returnablePhases.push(_phase);
             phaseIds += 1;
+            emit AddPresalePhase(_phase.name, phaseId);
     }
 
 
@@ -204,10 +216,16 @@ contract Drop is ERC721{
             revert InvalidPhase(_phaseId);
         }
         delete phases[_phaseId];
+        delete _returnablePhases[_phaseId - 1];
+        for(uint8 i; i < _returnablePhases.length; i++){
+        }
+        phaseCheck[_phaseId] = false;
+        emit RemovePresalePhase(phases[_phaseId].name, _phaseId);
     }
 
     // getter for presale phases.
     function getPresalePhases() external view returns(PresaleLib.PresalePhase[] memory){
+        
         return _returnablePhases;
     }
 
@@ -238,8 +256,8 @@ contract Drop is ERC721{
         }
         for(uint i; i < _receipients.length; i++){
             _mintNft(_receipients[i], _amountPerAddress);
-            emit Airdrop(_receipients[i], tokenId, _amountPerAddress);
         }
+        emit BatchAirdrop(_receipients, _amountPerAddress);
     }
     
     // Pause mint process
@@ -284,13 +302,19 @@ contract Drop is ERC721{
         uint totalCost = _getCost(_phaseId, _amount);
         require(msg.value >= totalCost, "Insufficient Funds");
         // verify whitelist
-        bool whitelisted = _proof.verify(phases[_phaseId].merkleRoot, keccak256(abi.encode(msg.sender)));
-       // require(whitelisted, "Address not in whitelist");
-        
+        bool whitelisted = _proof.verify(phases[_phaseId].merkleRoot, keccak256(abi.encodePacked(msg.sender))); 
         if(whitelisted == false){
             revert NotWhitelisted(msg.sender);
         }
         _mintNft(msg.sender, _amount);
+    }
+
+
+    /**
+    * @dev Allows owner to burn their nft
+    */
+    function burn(uint _tokenId) tokenOwner(_tokenId) external{
+        _burn(tokenId);
     }
 
       // total supply
@@ -370,17 +394,17 @@ contract Drop is ERC721{
     * @notice Phases can later be added if not included during contract initialization.
     */
 
-    function _setPhases(bool _enabled, PresaleLib.PresalePhase[] memory _phases) internal onlyOwner{
-        if(_enabled){
-        for(uint8 i; i < _phases.length; i++){
-            _phases[i].startTime = block.timestamp + _phases[i].startTime;
-            _phases[i].endTime = block.timestamp + _phases[i].endTime;
-            phases[phaseIds + 1] = _phases[i];
-            phaseCheck[phaseIds + 1] = true;
-            _returnablePhases.push(phases[phaseIds + 1]);
-            phaseIds += 1;
-        }
-        emit SetPhase(_phases.length);
-        }
-    }
+    // function _setPhases(bool _enabled, PresaleLib.PresalePhase[] memory _phases) internal onlyOwner{
+    //     if(_enabled){
+    //     for(uint8 i; i < _phases.length; i++){
+    //         _phases[i].startTime = block.timestamp + _phases[i].startTime;
+    //         _phases[i].endTime = block.timestamp + _phases[i].endTime;
+    //         phases[phaseIds + 1] = _phases[i];
+    //         phaseCheck[phaseIds + 1] = true;
+    //         _returnablePhases.push(phases[phaseIds + 1]);
+    //         phaseIds += 1;
+    //     }
+    //     emit SetPhase(_phases.length);
+    //     }
+    // }
 }
