@@ -5,11 +5,6 @@ import {MerkleProof} from ".deps/github/OpenZeppelin/openzeppelin-contracts/cont
 import {PresaleLib} from "./PresaleLib.sol";
 
 
-interface IERC20{
-    function balanceOf(address _account) external view returns(uint);
-}
-
-
 /**
 * @dev Implementation of an ERC721 drop.
 
@@ -90,20 +85,21 @@ contract Drop is ERC721{
     event SetPhase(uint _phaseCount);    
     event PublicMintEnabled();
     event PublicMintDisabled();
+    event WithdrawFunds(uint _amount);
     event AddPresalePhase(string _phaseName, uint8 _phaseId);
     event RemovePresalePhase(string _phaseName, uint8 _phaseId);
     event BatchAirdrop(address[] _receipients, uint _amount);
 
     
     // Enforce Creator priviledges
-    modifier onlyOwner{
-        require(msg.sender == owner, "Not Owner");
+    modifier onlyCreator{
+        require(msg.sender == owner, "Not Creator");
         _;
     }
 
     // Enforce owner priviledges
     modifier tokenOwner(uint _tokenId){
-        require(msg.sender == ownerOf(tokenId));
+        require(msg.sender == ownerOf(tokenId), "Not Owner");
         _;
     }
 
@@ -159,7 +155,7 @@ contract Drop is ERC721{
     * @dev Allows creator to enable or disable public mint.
     * useful if creator only wants a whitelisted sale.
     */
-    function togglePublicMint(toggle _option) external onlyOwner{
+    function togglePublicMint(toggle _option) external onlyCreator{
         if(_option == toggle.ENABLE){
             enablePublicMint = true;
             emit PublicMintEnabled();
@@ -180,6 +176,10 @@ contract Drop is ERC721{
     */
 
     function mintPublic(uint _amount, address _to) external payable phaseActive(0) limit(_to, _amount, 0){
+        if (_to == address(0)){
+            revert ZeroAddress();
+        }
+
         if (!_canMint(_amount)){
             revert SupplyExceeded(MAX_SUPPLY);
         }
@@ -197,35 +197,46 @@ contract Drop is ERC721{
     * @dev adds new presale phase for contract
     * @param _phase is the new phase to be added
     */
-
-    function addPresalePhase(PresaleLib.PresalePhase calldata _phase) external onlyOwner{
-           // bytes32 phaseId = PresaleLib.computePhaseId();
+    function addPresalePhase(PresaleLib.PresalePhaseIn calldata _phase) external onlyCreator{
             uint8 phaseId = phaseIds + 1;
-            phases[phaseId] = _phase;
+            PresaleLib.PresalePhase memory phase = PresaleLib.PresalePhase({
+                name: _phase.name,
+                startTime: block.timestamp + _phase.startTime,
+                endTime: block.timestamp + _phase.endTime,
+                maxPerAddress: _phase.maxPerAddress,
+                price: _phase.price,
+                merkleRoot: _phase.merkleRoot,
+                phaseId: phaseId});
+
+            phases[phaseId] = phase;
             phases[phaseId].startTime = phases[phaseId].startTime + block.timestamp;
             phases[phaseId].endTime = phases[phaseId].endTime + block.timestamp;
             phaseCheck[phaseId] = true;
-            _returnablePhases.push(_phase);
+            _returnablePhases.push(phase);
             phaseIds += 1;
             emit AddPresalePhase(_phase.name, phaseId);
     }
 
 
-    function removePhase(uint8 _phaseId) external onlyOwner{
+    function removePhase(uint8 _phaseId) external onlyCreator{
         if (!phaseCheck[_phaseId]){
             revert InvalidPhase(_phaseId);
         }
-        delete phases[_phaseId];
-        delete _returnablePhases[_phaseId - 1];
-        for(uint8 i; i < _returnablePhases.length; i++){
+
+        PresaleLib.PresalePhase[] memory returnablePhases = _returnablePhases;
+        delete _returnablePhases;
+        for (uint8 i; i < returnablePhases.length; i++){
+            if (returnablePhases[i].phaseId != _phaseId){
+                _returnablePhases.push(returnablePhases[i]);
+            }
         }
+        delete phases[_phaseId];
         phaseCheck[_phaseId] = false;
         emit RemovePresalePhase(phases[_phaseId].name, _phaseId);
     }
 
     // getter for presale phases.
     function getPresalePhases() external view returns(PresaleLib.PresalePhase[] memory){
-        
         return _returnablePhases;
     }
 
@@ -235,7 +246,7 @@ contract Drop is ERC721{
     * @param _amount is the amount of NFTs to be airdropped
     * Ensures amount of tokens to be minted does not exceed MAX_SUPPLY*/
 
-    function airdrop(address _to, uint _amount) external onlyOwner{
+    function airdrop(address _to, uint _amount) external onlyCreator{
         if(!_canMint(_amount)){
             revert SupplyExceeded(MAX_SUPPLY);
         }
@@ -249,7 +260,7 @@ contract Drop is ERC721{
     * @param _amountPerAddress is the amount of tokens to be minted per addresses.
     * Ensures total amount of NFT to be minted does not exceed MAX_SUPPLY.
     * */
-    function batchAirdrop(address[] calldata _receipients, uint _amountPerAddress) external onlyOwner{
+    function batchAirdrop(address[] calldata _receipients, uint _amountPerAddress) external onlyCreator{
         uint totalAmount = _amountPerAddress * _receipients.length;
         if (!_canMint(totalAmount)){
             revert SupplyExceeded(MAX_SUPPLY);
@@ -261,23 +272,23 @@ contract Drop is ERC721{
     }
     
     // Pause mint process
-    function pauseSale() external onlyOwner{
+    function pauseSale() external onlyCreator{
         paused = true;
         emit SalePaused();
     }
 
     // Resume mint process
-    function resumeSale() external onlyOwner{
+    function resumeSale() external onlyCreator{
         paused = false;
         emit ResumeSale();
     }
 
     // Withdraw funds from contract
-
-    function withdraw(uint _amount) external onlyOwner{
+    function withdraw(uint _amount) external onlyCreator{
         require(address(this).balance >= _amount, "Insufficient Funds");
         (bool success, ) = payable(owner).call{value: _amount}("");
         require(success, "Withdrawal Failed");
+        emit WithdrawFunds(_amount);
     }
 
     /**
@@ -385,26 +396,5 @@ contract Drop is ERC721{
             totalMinted += 1;
             _safeMint(_to, tokenId);
         }
-
     }
-
-        /**
-    * @dev This function allows the creator to add presale phases when initializing the contract.
-    * @param _phases is an array of phases to be added.
-    * @notice Phases can later be added if not included during contract initialization.
-    */
-
-    // function _setPhases(bool _enabled, PresaleLib.PresalePhase[] memory _phases) internal onlyOwner{
-    //     if(_enabled){
-    //     for(uint8 i; i < _phases.length; i++){
-    //         _phases[i].startTime = block.timestamp + _phases[i].startTime;
-    //         _phases[i].endTime = block.timestamp + _phases[i].endTime;
-    //         phases[phaseIds + 1] = _phases[i];
-    //         phaseCheck[phaseIds + 1] = true;
-    //         _returnablePhases.push(phases[phaseIds + 1]);
-    //         phaseIds += 1;
-    //     }
-    //     emit SetPhase(_phases.length);
-    //     }
-    // }
 }

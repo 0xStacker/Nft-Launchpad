@@ -20,13 +20,21 @@ library PresaleLib{
         uint startTime;
         uint endTime;
         bytes32 merkleRoot;
-        bytes32 phaseId;
+        uint phaseId;
     }
 
-    function computePhaseId(PresalePhase memory phase) external pure returns (bytes32)  {
-        return keccak256(abi.encodePacked(phase.name,phase.price, phase.startTime, phase.merkleRoot));
-    }
 
-    function getId(PresalePhaseIn memory phase) external pure returns (PresalePhase memory){
+    function getId(PresalePhaseIn memory phase, uint8 _id) external pure returns (PresalePhase memory){
+        PresalePhase memory _phase = PresalePhase({
+            maxPerAddress : phase.maxPerAddress,
+            name: phase.name,
+            price: phase.price,
+            startTime: phase.startTime,
+            endTime: phase.endTime,
+            merkleRoot: phase.merkleRoot,
+            phaseId : _id
+        });
+
+        return _phase;
     } 
 }
