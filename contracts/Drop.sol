@@ -76,6 +76,12 @@ contract Drop is ERC721{
     error SupplyExceeded(uint maxSupply);
     error InvalidPhase(uint8 _phaseId);
     error ZeroAddress();
+    error PurchaseFailed();
+    error NotCreator();
+    error NotOwner();
+    error SaleIsPaused();
+    error WithdrawalFailed();
+
 
     event SalePaused();
     event Purchase(address _buyer, uint _tokenId, uint _amount);
@@ -93,13 +99,15 @@ contract Drop is ERC721{
     
     // Enforce Creator priviledges
     modifier onlyCreator{
-        require(msg.sender == owner, "Not Creator");
+        if (msg.sender != owner){
+            revert NotCreator();}
         _;
     }
 
     // Enforce owner priviledges
     modifier tokenOwner(uint _tokenId){
-        require(msg.sender == ownerOf(tokenId), "Not Owner");
+        if(msg.sender != ownerOf(_tokenId)){
+            revert NotOwner();}
         _;
     }
 
@@ -119,7 +127,9 @@ contract Drop is ERC721{
 
     // Allows owner to pause minting at any phase.
     modifier isPaused{
-        require(!paused, "Sale Is Paused");
+        if(paused){
+            revert SaleIsPaused();
+        }
         _;
     }
 
@@ -196,6 +206,7 @@ contract Drop is ERC721{
     /**
     * @dev adds new presale phase for contract
     * @param _phase is the new phase to be added
+    * @notice phases are identified sequentially using numbers, starting from 1.
     */
     function addPresalePhase(PresaleLib.PresalePhaseIn calldata _phase) external onlyCreator{
             uint8 phaseId = phaseIds + 1;
@@ -217,6 +228,10 @@ contract Drop is ERC721{
             emit AddPresalePhase(_phase.name, phaseId);
     }
 
+    /**
+    * @dev Remove presale phase
+    * @param _phaseId is the identifier for the phase being removed
+    */
 
     function removePhase(uint8 _phaseId) external onlyCreator{
         if (!phaseCheck[_phaseId]){
@@ -285,9 +300,13 @@ contract Drop is ERC721{
 
     // Withdraw funds from contract
     function withdraw(uint _amount) external onlyCreator{
-        require(address(this).balance >= _amount, "Insufficient Funds");
+        if (address(this).balance < _amount){
+            revert InsufficientFunds(_amount);
+        }
         (bool success, ) = payable(owner).call{value: _amount}("");
-        require(success, "Withdrawal Failed");
+        if (!success){
+            revert WithdrawalFailed();
+        }
         emit WithdrawFunds(_amount);
     }
 
@@ -311,7 +330,9 @@ contract Drop is ERC721{
         
         // get mint cost
         uint totalCost = _getCost(_phaseId, _amount);
-        require(msg.value >= totalCost, "Insufficient Funds");
+        if (msg.value < totalCost){
+            revert InsufficientFunds(totalCost);
+        }
         // verify whitelist
         bool whitelisted = _proof.verify(phases[_phaseId].merkleRoot, keccak256(abi.encodePacked(msg.sender))); 
         if(whitelisted == false){
@@ -390,7 +411,10 @@ contract Drop is ERC721{
         }
 
         (bool success,) = payable(owner).call{value: msg.value}("");
-        require(success, "Purchase Failed");  
+        if (!success){
+            revert PurchaseFailed();
+        }
+ 
         for(uint i; i < _amount; i++){
             tokenId += 1;
             totalMinted += 1;
