@@ -158,23 +158,23 @@ contract Drop is ERC721{
         uint maxPerWallet;
     }
 
-    enum toggle{ENABLE, DISABLE}
-    bool publicMintEnabled;
+    // enum toggle{ENABLE, DISABLE}
+    // bool publicMintEnabled;
 
     /**
     * @dev Allows creator to enable or disable public mint.
     * useful if creator only wants a whitelisted sale.
     */
-    function togglePublicMint(toggle _option) external onlyCreator{
-        if(_option == toggle.ENABLE){
-            enablePublicMint = true;
-            emit PublicMintEnabled();
-        }
-        else{
-            enablePublicMint = false;
-            emit PublicMintDisabled();
-        }
-    }
+    // function togglePublicMint(toggle _option) external onlyCreator{
+    //     if(_option == toggle.ENABLE){
+    //         enablePublicMint = true;
+    //         emit PublicMintEnabled();
+    //     }
+    //     else{
+    //         enablePublicMint = false;
+    //         emit PublicMintDisabled();
+    //     }
+    // }
 
 
     /**
@@ -353,22 +353,6 @@ contract Drop is ERC721{
     function supply() external view returns(uint){
         return MAX_SUPPLY;
     }
-
-    function checkWhitelist(address _address, uint8 _phaseId, bytes32[] calldata _proof) external view returns(bool){
-        return MerkleProof.verify(_proof, phases[_phaseId].merkleRoot, keccak256(abi.encode(_address)));
-    }
-
-    // Return the total NFTs minted
-    function getTotalMinted() external view returns(uint){
-        return totalMinted;
-    }
-
-
-    // Return creator address
-    function creatorAddress() public view returns(address){
-        return owner;
-    } 
- 
  
     /**
     * @dev Checks if a certain amount of token can be minted. 
