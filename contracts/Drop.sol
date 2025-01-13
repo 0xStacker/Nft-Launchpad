@@ -21,7 +21,7 @@ contract Drop is ERC721{
     uint private royalty;
     uint public mintFee;
     bool public paused;
-    publicMint internal _publicMint;
+    PublicMint internal _publicMint;
     bool internal enablePublicMint = true;
     uint8 internal phaseIds;
     // Sequential phase identities, 0 represents the public minting phase.
@@ -57,8 +57,8 @@ contract Drop is ERC721{
     uint8 _maxPerWallet) ERC721(_name, _symbol){
         MAX_SUPPLY = _maxSupply;
         price = _price;
-        // Ensure that owner is an EOA
-        require(_owner.code.length == 0, "Owner cannot be a contract");
+        // Ensure that owner is an EOA and not zero address
+        require(_owner.code.length == 0 && _owner != address(0), "Invalid Adress");
         owner = _owner;
         mintFee = _mintFee;
         _publicMint.startTime = block.timestamp + _startTime;
@@ -81,6 +81,7 @@ contract Drop is ERC721{
     error NotOwner();
     error SaleIsPaused();
     error WithdrawalFailed();
+    error MaxPhaseLimit();
 
 
     event SalePaused();
@@ -151,7 +152,7 @@ contract Drop is ERC721{
     /**
     * @dev Holds mint details for the public/general mint
     */
-    struct publicMint{
+    struct PublicMint{
         uint startTime;
         uint endTime;
         uint price;
@@ -209,15 +210,16 @@ contract Drop is ERC721{
     * @notice phases are identified sequentially using numbers, starting from 1.
     */
     function addPresalePhase(PresaleLib.PresalePhaseIn calldata _phase) external onlyCreator{
-            uint8 phaseId = phaseIds + 1;
-            PresaleLib.PresalePhase memory phase = PresaleLib.PresalePhase({
-                name: _phase.name,
-                startTime: block.timestamp + _phase.startTime,
-                endTime: block.timestamp + _phase.endTime,
-                maxPerAddress: _phase.maxPerAddress,
-                price: _phase.price,
-                merkleRoot: _phase.merkleRoot,
-                phaseId: phaseId});
+
+        uint8 phaseId = phaseIds + 1;
+        PresaleLib.PresalePhase memory phase = PresaleLib.PresalePhase({
+            name: _phase.name,
+            startTime: block.timestamp + _phase.startTime,
+            endTime: block.timestamp + _phase.endTime,
+            maxPerAddress: _phase.maxPerAddress,
+            price: _phase.price,
+            merkleRoot: _phase.merkleRoot,
+            phaseId: phaseId});
 
             phases[phaseId] = phase;
             phases[phaseId].startTime = phases[phaseId].startTime + block.timestamp;
@@ -225,6 +227,9 @@ contract Drop is ERC721{
             phaseCheck[phaseId] = true;
             _returnablePhases.push(phase);
             phaseIds += 1;
+            if(_returnablePhases.length > PHASELIMIT){
+                revert MaxPhaseLimit();
+            }
             emit AddPresalePhase(_phase.name, phaseId);
     }
 
@@ -250,9 +255,14 @@ contract Drop is ERC721{
         emit RemovePresalePhase(phases[_phaseId].name, _phaseId);
     }
 
-    // getter for presale phases.
-    function getPresalePhases() external view returns(PresaleLib.PresalePhase[] memory){
+    // getter for presale phase data
+    function getPresaleData() external view returns(PresaleLib.PresalePhase[] memory){
         return _returnablePhases;
+    }
+
+    // getter for public mint data
+    function getPublicMintData() external view returns(PublicMint memory){
+        return _publicMint;
     }
 
     /**
@@ -262,6 +272,9 @@ contract Drop is ERC721{
     * Ensures amount of tokens to be minted does not exceed MAX_SUPPLY*/
 
     function airdrop(address _to, uint _amount) external onlyCreator{
+        if (_to == address(0)){
+            revert ZeroAddress();
+        }
         if(!_canMint(_amount)){
             revert SupplyExceeded(MAX_SUPPLY);
         }
@@ -281,6 +294,9 @@ contract Drop is ERC721{
             revert SupplyExceeded(MAX_SUPPLY);
         }
         for(uint i; i < _receipients.length; i++){
+            if (_receipients[i] == address(0)){
+                revert ZeroAddress();
+            }
             _mintNft(_receipients[i], _amountPerAddress);
         }
         emit BatchAirdrop(_receipients, _amountPerAddress);
